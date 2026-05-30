@@ -220,6 +220,10 @@ export async function updateUser(
   return data;
 }
 
+export async function deleteUser(id: number) {
+  await api.delete(`/admin/users/${id}/`);
+}
+
 export async function getAnalytics() {
   const { data } = await api.get<Analytics>("/admin/analytics/");
   return data;

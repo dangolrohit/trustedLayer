@@ -1,5 +1,6 @@
 import { FileUp, ReceiptText } from "lucide-react";
 import { useEffect, useState } from "react";
+import type { AxiosError } from "axios";
 
 import { Button } from "../components/ui/Button";
 import { Panel } from "../components/ui/Panel";
@@ -41,8 +42,10 @@ export function BankStatementsPage() {
       setSelectedMerchantId("");
       setMessage(`Statement uploaded and analyzed. Current trust score: ${result.trust_score.score}.`);
       await refresh();
-    } catch {
-      setMessage("Upload failed. Use a PDF/Excel file under 5MB and check backend/Supabase settings.");
+    } catch (error) {
+      const axiosError = error as AxiosError<{ detail?: string }>;
+      const detail = axiosError.response?.data?.detail;
+      setMessage(detail || "Upload failed. Use a PDF/Excel file under 5MB and check backend/Supabase settings.");
     } finally {
       setUploading(false);
     }

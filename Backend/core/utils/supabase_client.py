@@ -41,15 +41,26 @@ def upload_private_file(file_obj, storage_path: str, content_type: str) -> str:
             file=payload,
             file_options={"content-type": content_type, "upsert": "false"},
         )
-    except ModuleNotFoundError as exc:
-        logger.warning("Supabase client unavailable, using Storage REST API: %s", exc)
-        url = (
-            f"{_storage_base_url()}/storage/v1/object/"
-            f"{settings.SUPABASE_STORAGE_BUCKET}/{storage_path}"
-        )
-        response = httpx.post(url, content=payload, headers=_storage_headers(content_type), timeout=30)
-        response.raise_for_status()
+    except Exception as exc:
+        logger.exception("Supabase upload failed for %s", storage_path)
+        raise RuntimeError(f"Supabase upload failed: {exc}") from exc
     return storage_path
+
+
+def download_private_file(storage_path: str) -> bytes:
+    try:
+        client = get_supabase_client()
+        response = client.storage.from_(settings.SUPABASE_STORAGE_BUCKET).download(storage_path)
+        if hasattr(response, "content"):
+            return response.content
+        if isinstance(response, bytes):
+            return response
+        if hasattr(response, "read"):
+            return response.read()
+        raise RuntimeError("Unexpected Supabase download response.")
+    except Exception as exc:
+        logger.exception("Supabase download failed for %s", storage_path)
+        raise RuntimeError(f"Supabase download failed: {exc}") from exc
 
 
 def create_signed_url(storage_path: str) -> str:
@@ -61,20 +72,6 @@ def create_signed_url(storage_path: str) -> str:
         if isinstance(response, dict):
             return response.get("signedURL") or response.get("signed_url") or ""
         return getattr(response, "signed_url", "") or getattr(response, "signedURL", "")
-    except ModuleNotFoundError as exc:
-        logger.warning("Supabase client unavailable, using signed URL REST API: %s", exc)
-        url = (
-            f"{_storage_base_url()}/storage/v1/object/sign/"
-            f"{settings.SUPABASE_STORAGE_BUCKET}/{storage_path}"
-        )
-        response = httpx.post(
-            url,
-            json={"expiresIn": settings.SUPABASE_SIGNED_URL_TTL_SECONDS},
-            headers=_storage_headers("application/json"),
-            timeout=30,
-        )
-        response.raise_for_status()
-        signed_path = response.json().get("signedURL") or response.json().get("signedUrl") or ""
-        if signed_path.startswith("http"):
-            return signed_path
-        return f"{_storage_base_url()}/storage/v1{signed_path}"
+    except Exception as exc:
+        logger.exception("Supabase signed URL failed for %s", storage_path)
+        raise RuntimeError(f"Supabase signed URL failed: {exc}") from exc

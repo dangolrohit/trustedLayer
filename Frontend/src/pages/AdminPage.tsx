@@ -4,7 +4,7 @@ import { BarChart3, Settings, UserPlus, Users } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { Field, Input, Textarea } from "../components/ui/Input";
 import { Panel, StatPanel } from "../components/ui/Panel";
-import { createSetting, createUser, getAnalytics, listSettings, listUsers, updateSetting, updateUser } from "../lib/api";
+import { createSetting, createUser, deleteUser, getAnalytics, listSettings, listUsers, updateSetting, updateUser } from "../lib/api";
 import { roleLabel } from "../lib/utils";
 import { useAuthStore } from "../store/auth";
 import type { Analytics, Role, SystemSetting, User } from "../types/api";
@@ -15,6 +15,8 @@ export function AdminPage() {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [settings, setSettings] = useState<SystemSetting[]>([]);
   const [message, setMessage] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<User | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [newUser, setNewUser] = useState({
     phone: "",
     password: "",
@@ -56,6 +58,22 @@ export function AdminPage() {
   const onToggleActive = async (user: User) => {
     await updateUser(user.id, { is_active: !user.is_active });
     await refresh();
+  };
+
+  const onDeleteUser = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    setMessage("");
+    try {
+      await deleteUser(pendingDelete.id);
+      setPendingDelete(null);
+      setMessage(`Deleted ${pendingDelete.phone} and all related data.`);
+      await refresh();
+    } catch {
+      setMessage("Delete failed. Try again.");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const onCreateSetting = async () => {
@@ -231,9 +249,14 @@ export function AdminPage() {
                   <td className="py-3">{user.is_active ? "Yes" : "No"}</td>
                   {isAdmin ? (
                     <td className="py-3">
-                      <Button size="sm" variant="secondary" onClick={() => onToggleActive(user)}>
-                        {user.is_active ? "Deactivate" : "Activate"}
-                      </Button>
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" variant="secondary" onClick={() => onToggleActive(user)}>
+                          {user.is_active ? "Deactivate" : "Activate"}
+                        </Button>
+                        <Button size="sm" onClick={() => setPendingDelete(user)} disabled={user.role === "admin"}>
+                          Delete
+                        </Button>
+                      </div>
                     </td>
                   ) : null}
                 </tr>
@@ -242,6 +265,25 @@ export function AdminPage() {
           </table>
         </div>
       </Panel>
+
+      {pendingDelete ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-semibold">Are you sure?</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Delete {pendingDelete.phone}? This removes the user and all secondary data linked to the account.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <Button variant="secondary" onClick={() => setPendingDelete(null)} disabled={deleting}>
+                Cancel
+              </Button>
+              <Button onClick={onDeleteUser} disabled={deleting}>
+                {deleting ? "Deleting..." : "Delete user"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
     </div>

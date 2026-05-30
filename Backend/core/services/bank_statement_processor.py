@@ -3,11 +3,12 @@ import re
 from collections import defaultdict
 from datetime import date as dt_date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from io import BytesIO
 from statistics import mean, pstdev
-from tempfile import NamedTemporaryFile
 from uuid import uuid4
 
 import pdfplumber
+from django.core.files.uploadedfile import SimpleUploadedFile
 from openpyxl import load_workbook
 from pyxlsb import open_workbook as open_xlsb_workbook
 import xlrd
@@ -16,7 +17,7 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from core.models import BankStatement, BehavioralData
-from core.utils.supabase_client import create_signed_url, upload_private_file
+from core.utils.supabase_client import create_signed_url, download_private_file, upload_private_file
 
 logger = logging.getLogger(__name__)
 
@@ -48,18 +49,14 @@ def validate_statement_upload(uploaded_file):
 
 def extract_pdf_text(uploaded_file) -> str:
     uploaded_file.seek(0)
-    with NamedTemporaryFile(suffix=".pdf") as temp_file:
-        for chunk in uploaded_file.chunks():
-            temp_file.write(chunk)
-        temp_file.flush()
-
-        text_parts = []
-        with pdfplumber.open(temp_file.name) as pdf:
-            for page in pdf.pages:
-                text = page.extract_text() or ""
-                if text:
-                    text_parts.append(text)
-        return "\n".join(text_parts).strip()
+    file_bytes = uploaded_file.read()
+    text_parts = []
+    with pdfplumber.open(BytesIO(file_bytes)) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text() or ""
+            if text:
+                text_parts.append(text)
+    return "\n".join(text_parts).strip()
 
 
 def _to_decimal(raw) -> Decimal:
@@ -133,18 +130,14 @@ def _extract_excel_rows(uploaded_file, extension: str):
 
     if extension in XLSB_EXTENSIONS:
         uploaded_file.seek(0)
-        with NamedTemporaryFile(suffix=".xlsb") as temp_file:
-            for chunk in uploaded_file.chunks():
-                temp_file.write(chunk)
-            temp_file.flush()
-
-            rows = []
-            with open_xlsb_workbook(temp_file.name) as workbook:
-                first_sheet_name = workbook.sheets[0]
-                with workbook.get_sheet(first_sheet_name) as sheet:
-                    for row in sheet.rows():
-                        rows.append(tuple(cell.v for cell in row))
-            return rows
+        workbook_bytes = uploaded_file.read()
+        rows = []
+        with open_xlsb_workbook(BytesIO(workbook_bytes)) as workbook:
+            first_sheet_name = workbook.sheets[0]
+            with workbook.get_sheet(first_sheet_name) as sheet:
+                for row in sheet.rows():
+                    rows.append(tuple(cell.v for cell in row))
+        return rows
 
     return []
 
@@ -359,19 +352,26 @@ class BankStatementProcessor:
             f"merchants/{merchant.id}/{timezone.now().date().isoformat()}/"
             f"{uuid4()}-{uploaded_file.name}"
         )
+
         if statement_type == "pdf":
-            extracted_text = extract_pdf_text(uploaded_file)
-            parsed_transactions = parse_transactions(extracted_text)
             content_type = "application/pdf"
         else:
-            parsed_transactions = parse_excel_transactions(uploaded_file)
-            extracted_text = serialize_transactions_as_text(parsed_transactions)
             content_type = uploaded_file.content_type or "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
-        analysis_summary = analyze_transactions(parsed_transactions)
 
         uploaded_file.seek(0)
         upload_private_file(uploaded_file, storage_path, content_type)
+
+        stored_bytes = download_private_file(storage_path)
+        stored_file = SimpleUploadedFile(uploaded_file.name, stored_bytes, content_type=content_type)
+
+        if statement_type == "pdf":
+            extracted_text = extract_pdf_text(stored_file)
+            parsed_transactions = parse_transactions(extracted_text)
+        else:
+            parsed_transactions = parse_excel_transactions(stored_file)
+            extracted_text = serialize_transactions_as_text(parsed_transactions)
+
+        analysis_summary = analyze_transactions(parsed_transactions)
         signed_url = create_signed_url(storage_path)
 
         statement = BankStatement.objects.create(

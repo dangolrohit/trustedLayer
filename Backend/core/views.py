@@ -149,7 +149,8 @@ class ProfileViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"], url_path="dashboard")
     def dashboard(self, request):
         if request.user.role in {User.Roles.ADMIN, User.Roles.LOAN_DEPARTMENT}:
-            return Response(self._staff_dashboard(request.user))
+            profile, _ = Profile.objects.get_or_create(user=request.user)
+            return Response(self._staff_dashboard(request.user, profile))
         profile = request.user.profile
         score = TrustScoreService().calculate_for_merchant(request.user, persist=False)
         loans = LoanApplication.objects.filter(merchant=request.user).order_by("-created_at")[:5]
@@ -162,13 +163,34 @@ class ProfileViewSet(viewsets.ModelViewSet):
             }
         )
 
-    def _staff_dashboard(self, user):
+    def _staff_dashboard(self, user, profile):
         merchants = User.objects.filter(role=User.Roles.MERCHANT)
         pending_loans = LoanApplication.objects.filter(status=LoanApplication.Status.PENDING)
         recent_loans = LoanApplication.objects.select_related("merchant", "reviewed_by").order_by("-created_at")[:5]
         return {
-            "profile": ProfileSerializer(user.profile).data,
-            "trust_score": TrustScoreService().calculate_for_merchant(user, persist=False),
+            "profile": ProfileSerializer(profile).data,
+            "trust_score": {
+                "score": round(merchants.aggregate(avg=Avg("profile__trust_score"))["avg"] or 0),
+                "breakdown": {
+                    "social_component": 0,
+                    "psychometric_component": 0,
+                    "behavioral_component": 0,
+                    "bank_impact": 0,
+                    "weights": {
+                        "social": TrustScoreService.SOCIAL_WEIGHT,
+                        "psychometric": TrustScoreService.PSYCHOMETRIC_WEIGHT,
+                        "behavioral": TrustScoreService.BEHAVIORAL_WEIGHT,
+                    },
+                },
+                "behavioral_signals": {
+                    "score": 0,
+                    "non_bank_behavior_score": 0,
+                    "bank_statement_score": 0,
+                    "bank_impact": 0,
+                    "has_bank_statement": False,
+                },
+                "explanation": "Staff dashboard summary across merchants.",
+            },
             "recent_loans": LoanApplicationSerializer(recent_loans, many=True).data,
             "bank_statement_count": BankStatement.objects.count(),
             "analytics": {
