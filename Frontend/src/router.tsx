@@ -8,11 +8,13 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { LoansPage } from "./pages/LoansPage";
 import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
+import { SignupPage } from "./pages/SignupPage";
 import { TrustScorePage } from "./pages/TrustScorePage";
 
 export const router = createBrowserRouter([
   { path: "/", element: <Navigate to="/app" replace /> },
   { path: "/login", element: <LoginPage /> },
+  { path: "/signup", element: <SignupPage /> },
   {
     path: "/app",
     element: <ProtectedRoute />,

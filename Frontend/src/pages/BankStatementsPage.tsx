@@ -36,13 +36,13 @@ export function BankStatementsPage() {
     setUploading(true);
     setMessage("");
     try {
-      await uploadBankStatement(selectedFile, merchantId);
+      const result = await uploadBankStatement(selectedFile, merchantId);
       setSelectedFile(null);
       setSelectedMerchantId("");
-      setMessage("Statement uploaded and analyzed.");
+      setMessage(`Statement uploaded and analyzed. Current trust score: ${result.trust_score.score}.`);
       await refresh();
     } catch {
-      setMessage("Upload failed. Use a PDF under 5MB and check backend/Supabase settings.");
+      setMessage("Upload failed. Use a PDF/Excel file under 5MB and check backend/Supabase settings.");
     } finally {
       setUploading(false);
     }
@@ -55,7 +55,9 @@ export function BankStatementsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Bank Statements</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Upload PDF statements and review extracted cash-flow signals.</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Upload PDF or Excel statements and review extracted transaction records and cash-flow signals.
+        </p>
       </div>
 
       <Panel>
@@ -78,10 +80,10 @@ export function BankStatementsPage() {
             </label>
           ) : null}
           <label>
-            <span className="mb-2 block text-sm font-medium">PDF statement</span>
+            <span className="mb-2 block text-sm font-medium">Statement file (PDF or Excel)</span>
             <input
               type="file"
-              accept="application/pdf"
+              accept=".pdf,.xlsx,.xls,.xlsm,.xlsb,.xltx,.xltm,.xlt,.xla,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
               className="block w-full rounded-md border border-border bg-white text-sm file:mr-4 file:h-11 file:border-0 file:bg-primary file:px-4 file:text-sm file:font-semibold file:text-white"
               onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
             />
@@ -112,6 +114,36 @@ export function BankStatementsPage() {
             <p className="mt-2 text-2xl font-bold">{latest.analysis_summary.bank_behavior_score ?? 0}</p>
           </Panel>
         </div>
+      ) : null}
+
+      {latest && latest.parsed_transactions.length ? (
+        <Panel>
+          <h2 className="mb-4 font-semibold">Latest statement transactions</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-left text-sm">
+              <thead className="border-b border-border text-muted-foreground">
+                <tr>
+                  <th className="py-3 font-medium">Date</th>
+                  <th className="py-3 font-medium">Description</th>
+                  <th className="py-3 font-medium">Credit</th>
+                  <th className="py-3 font-medium">Debit</th>
+                  <th className="py-3 font-medium">Balance</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {latest.parsed_transactions.map((tx, index) => (
+                  <tr key={`${tx.date}-${index}`}>
+                    <td className="py-3">{tx.date}</td>
+                    <td className="py-3">{tx.description || "-"}</td>
+                    <td className="py-3">{formatCurrency(Number(tx.credit ?? 0))}</td>
+                    <td className="py-3">{formatCurrency(Number(tx.debit ?? 0))}</td>
+                    <td className="py-3">{formatCurrency(Number(tx.balance ?? 0))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
       ) : null}
 
       <Panel>

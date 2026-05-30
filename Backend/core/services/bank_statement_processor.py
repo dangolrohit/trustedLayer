@@ -1,13 +1,16 @@
 import logging
 import re
 from collections import defaultdict
-from datetime import datetime
+from datetime import date as dt_date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from statistics import mean, pstdev
 from tempfile import NamedTemporaryFile
 from uuid import uuid4
 
 import pdfplumber
+from openpyxl import load_workbook
+from pyxlsb import open_workbook as open_xlsb_workbook
+import xlrd
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.utils import timezone
@@ -19,13 +22,28 @@ logger = logging.getLogger(__name__)
 
 MONEY_PATTERN = r"[-+]?(?:Rs\.?|NPR)?\s?\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|[-+]?\d+(?:\.\d{1,2})?"
 DATE_PATTERN = r"(?P<date>\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4})"
+OPENXML_EXTENSIONS = {".xlsx", ".xlsm", ".xltx", ".xltm", ".xlam"}
+XLS_EXTENSIONS = {".xls", ".xlt", ".xla"}
+XLSB_EXTENSIONS = {".xlsb"}
+EXCEL_EXTENSIONS = OPENXML_EXTENSIONS | XLS_EXTENSIONS | XLSB_EXTENSIONS
 
 
-def validate_pdf_upload(uploaded_file):
+def detect_statement_type(uploaded_file) -> str:
+    name = (uploaded_file.name or "").lower()
+    if name.endswith(".pdf") or uploaded_file.content_type == "application/pdf":
+        return "pdf"
+    if any(name.endswith(ext) for ext in EXCEL_EXTENSIONS):
+        return "excel"
+    raise ValidationError(
+        "Only PDF or Excel bank statements are supported "
+        "(.pdf, .xlsx, .xls, .xlsm, .xlsb, .xltx, .xltm)."
+    )
+
+
+def validate_statement_upload(uploaded_file):
     if uploaded_file.size > settings.MAX_BANK_STATEMENT_BYTES:
         raise ValidationError("Bank statement must be 5MB or smaller.")
-    if uploaded_file.content_type != "application/pdf" and not uploaded_file.name.lower().endswith(".pdf"):
-        raise ValidationError("Only PDF bank statements are supported.")
+    return detect_statement_type(uploaded_file)
 
 
 def extract_pdf_text(uploaded_file) -> str:
@@ -44,8 +62,14 @@ def extract_pdf_text(uploaded_file) -> str:
         return "\n".join(text_parts).strip()
 
 
-def _to_decimal(raw: str) -> Decimal:
-    cleaned = re.sub(r"[^\d\-.]", "", raw or "")
+def _to_decimal(raw) -> Decimal:
+    if raw is None:
+        return Decimal("0")
+    if isinstance(raw, Decimal):
+        return raw
+    if isinstance(raw, (int, float)):
+        return Decimal(str(raw))
+    cleaned = re.sub(r"[^\d\-.]", "", str(raw))
     if not cleaned:
         return Decimal("0")
     try:
@@ -54,7 +78,18 @@ def _to_decimal(raw: str) -> Decimal:
         return Decimal("0")
 
 
-def _normalize_date(raw: str):
+def _normalize_date(raw):
+    if isinstance(raw, datetime):
+        return raw.date().isoformat()
+    if isinstance(raw, dt_date):
+        return raw.isoformat()
+    if isinstance(raw, (int, float)):
+        # Excel serial date conversion base (Windows epoch).
+        try:
+            excel_base = datetime(1899, 12, 30)
+            return (excel_base + timedelta(days=float(raw))).date().isoformat()
+        except (OverflowError, ValueError):
+            return None
     cleaned = (raw or "").strip().replace("/", "-")
     formats = (
         "%Y-%m-%d",
@@ -69,6 +104,142 @@ def _normalize_date(raw: str):
         except ValueError:
             continue
     return None
+
+
+def _extract_excel_rows(uploaded_file, extension: str):
+    if extension in OPENXML_EXTENSIONS:
+        uploaded_file.seek(0)
+        workbook = load_workbook(uploaded_file, read_only=True, data_only=True)
+        worksheet = workbook.active
+        rows = list(worksheet.iter_rows(values_only=True))
+        workbook.close()
+        return rows
+
+    if extension in XLS_EXTENSIONS:
+        uploaded_file.seek(0)
+        workbook = xlrd.open_workbook(file_contents=uploaded_file.read())
+        sheet = workbook.sheet_by_index(0)
+        rows = []
+        for row_index in range(sheet.nrows):
+            row = []
+            for col_index in range(sheet.ncols):
+                cell = sheet.cell(row_index, col_index)
+                value = cell.value
+                if cell.ctype == xlrd.XL_CELL_DATE:
+                    value = xlrd.xldate_as_datetime(value, workbook.datemode)
+                row.append(value)
+            rows.append(tuple(row))
+        return rows
+
+    if extension in XLSB_EXTENSIONS:
+        uploaded_file.seek(0)
+        with NamedTemporaryFile(suffix=".xlsb") as temp_file:
+            for chunk in uploaded_file.chunks():
+                temp_file.write(chunk)
+            temp_file.flush()
+
+            rows = []
+            with open_xlsb_workbook(temp_file.name) as workbook:
+                first_sheet_name = workbook.sheets[0]
+                with workbook.get_sheet(first_sheet_name) as sheet:
+                    for row in sheet.rows():
+                        rows.append(tuple(cell.v for cell in row))
+            return rows
+
+    return []
+
+
+def parse_excel_transactions(uploaded_file) -> list[dict]:
+    extension = "." + (uploaded_file.name or "").lower().rsplit(".", 1)[-1] if "." in (uploaded_file.name or "") else ""
+    rows = _extract_excel_rows(uploaded_file, extension)
+    if not rows:
+        return []
+
+    headers = {}
+    header_row_index = 0
+    aliases = {
+        "date": {"date", "txn date", "transaction date", "value date", "posting date"},
+        "description": {"description", "particulars", "narration", "details", "remarks", "remark"},
+        "debit": {"debit", "withdrawal", "dr", "debits"},
+        "credit": {"credit", "deposit", "cr", "credits"},
+        "amount": {"amount", "txn amount", "transaction amount"},
+        "balance": {"balance", "closing balance", "available balance"},
+    }
+
+    for index, row in enumerate(rows[:20]):
+        normalized = [str(cell).strip().lower() if cell is not None else "" for cell in row]
+        if not normalized:
+            continue
+        row_map = {}
+        for idx, value in enumerate(normalized):
+            for key, words in aliases.items():
+                if value in words:
+                    row_map[key] = idx
+        if "date" in row_map and ("amount" in row_map or "debit" in row_map or "credit" in row_map):
+            headers = row_map
+            header_row_index = index
+            break
+
+    if not headers:
+        return []
+
+    transactions = []
+    for row in rows[header_row_index + 1 :]:
+        if not row:
+            continue
+        raw_date = row[headers["date"]] if headers.get("date") is not None and len(row) > headers["date"] else None
+        tx_date = _normalize_date(raw_date)
+        if not tx_date:
+            continue
+
+        description = ""
+        if headers.get("description") is not None and len(row) > headers["description"]:
+            description = str(row[headers["description"]] or "").strip()
+
+        debit = Decimal("0")
+        credit = Decimal("0")
+        balance = Decimal("0")
+
+        if headers.get("debit") is not None and len(row) > headers["debit"]:
+            debit = abs(_to_decimal(row[headers["debit"]]))
+        if headers.get("credit") is not None and len(row) > headers["credit"]:
+            credit = abs(_to_decimal(row[headers["credit"]]))
+        if headers.get("balance") is not None and len(row) > headers["balance"]:
+            balance = _to_decimal(row[headers["balance"]])
+
+        if debit == 0 and credit == 0 and headers.get("amount") is not None and len(row) > headers["amount"]:
+            amount = _to_decimal(row[headers["amount"]])
+            if amount < 0:
+                debit = abs(amount)
+            else:
+                credit = abs(amount)
+
+        if not description:
+            description = "Statement transaction"
+
+        transactions.append(
+            {
+                "date": tx_date,
+                "description": description[:255],
+                "credit": float(credit),
+                "debit": float(debit),
+                "balance": float(balance),
+            }
+        )
+
+    return transactions
+
+
+def serialize_transactions_as_text(transactions: list[dict]) -> str:
+    if not transactions:
+        return ""
+    lines = []
+    for tx in transactions:
+        lines.append(
+            f"{tx['date']} | {tx.get('description', '')} | CR {tx.get('credit', 0)} | "
+            f"DR {tx.get('debit', 0)} | BAL {tx.get('balance', 0)}"
+        )
+    return "\n".join(lines)
 
 
 def parse_transactions(extracted_text: str) -> list[dict]:
@@ -183,17 +354,24 @@ def analyze_transactions(transactions: list[dict]) -> dict:
 class BankStatementProcessor:
     @staticmethod
     def process_upload(merchant, uploaded_file) -> BankStatement:
-        validate_pdf_upload(uploaded_file)
+        statement_type = validate_statement_upload(uploaded_file)
         storage_path = (
             f"merchants/{merchant.id}/{timezone.now().date().isoformat()}/"
             f"{uuid4()}-{uploaded_file.name}"
         )
-        extracted_text = extract_pdf_text(uploaded_file)
-        parsed_transactions = parse_transactions(extracted_text)
+        if statement_type == "pdf":
+            extracted_text = extract_pdf_text(uploaded_file)
+            parsed_transactions = parse_transactions(extracted_text)
+            content_type = "application/pdf"
+        else:
+            parsed_transactions = parse_excel_transactions(uploaded_file)
+            extracted_text = serialize_transactions_as_text(parsed_transactions)
+            content_type = uploaded_file.content_type or "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
         analysis_summary = analyze_transactions(parsed_transactions)
 
         uploaded_file.seek(0)
-        upload_private_file(uploaded_file, storage_path, "application/pdf")
+        upload_private_file(uploaded_file, storage_path, content_type)
         signed_url = create_signed_url(storage_path)
 
         statement = BankStatement.objects.create(

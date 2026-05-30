@@ -1,6 +1,6 @@
 import { ArrowRight, BadgeCheck, Landmark, ShieldCheck } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { z } from "zod";
 
 import { login } from "../lib/api";
@@ -102,6 +102,12 @@ export function LoginPage() {
               <Button className="w-full" type="submit" disabled={isSubmitting}>
                 {isSubmitting ? "Signing in" : "Continue"} <ArrowRight size={18} />
               </Button>
+              <p className="text-sm text-muted-foreground">
+                New merchant?{" "}
+                <Link to="/signup" className="font-semibold text-primary hover:underline">
+                  Create an account
+                </Link>
+              </p>
             </form>
           </div>
         </section>

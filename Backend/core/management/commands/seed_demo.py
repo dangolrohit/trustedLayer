@@ -10,6 +10,7 @@ from core.models import (
     BehavioralData,
     Guarantor,
     LoanApplication,
+    Profile,
     PsychometricResponse,
     SystemSetting,
     User,
@@ -208,6 +209,8 @@ class Command(BaseCommand):
         user.is_active = True
         user.save()
 
+        # Ensure a Profile exists for the user (may be missing for pre-existing users).
+        Profile.objects.get_or_create(user=user)
         for field, value in profile.items():
             setattr(user.profile, field, value)
         if user.profile.score_last_updated is None:

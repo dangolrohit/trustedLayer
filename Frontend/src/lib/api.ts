@@ -60,6 +60,14 @@ export async function login(phone: string, password: string) {
   return data;
 }
 
+export async function registerMerchant(payload: { phone: string; password: string; name?: string }) {
+  const { data } = await api.post<User>("/auth/register/", {
+    ...payload,
+    role: "merchant",
+  });
+  return data;
+}
+
 export async function getMe() {
   const { data } = await api.get<User>("/auth/me/");
   return data;
