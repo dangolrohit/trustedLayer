@@ -1,0 +1,27 @@
+# Core Framework
+django>=5.0,<5.2
+djangorestframework>=3.15,<3.16
+djangorestframework-simplejwt>=5.3,<6.0
+
+# Database & Environment
+psycopg[binary]>=3.1,<4.0
+django-environ>=0.11,<0.12
+
+# Supabase & Storage
+# 2.6.x avoids newer storage3/pyiceberg build issues on Windows/Python 3.14.
+supabase==2.6.0
+
+# PDF Processing (Bank Statement)
+pdfplumber>=0.11,<0.12
+
+# Graph Analysis
+networkx>=3.3,<4.0
+
+# Production & Security
+gunicorn>=22.0,<23.0
+whitenoise>=6.7,<7.0
+django-cors-headers>=4.4,<5.0
+
+# Utilities
+python-dotenv>=1.0,<2.0
+django-filter>=24.0,<25.0
