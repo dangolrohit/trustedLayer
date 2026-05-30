@@ -11,6 +11,7 @@ from core.models import (
     LoanApplication,
     Profile,
     PsychometricResponse,
+    SystemSetting,
     TrustScoreHistory,
     User,
 )
@@ -84,6 +85,74 @@ class UserSerializer(serializers.ModelSerializer):
         model = UserModel
         fields = ("id", "phone", "role", "is_active", "date_joined", "profile")
         read_only_fields = ("id", "is_active", "date_joined")
+
+
+class AdminUserSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    name = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    region = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    trade_type = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    address = serializers.CharField(write_only=True, required=False, allow_blank=True)
+
+    class Meta:
+        model = UserModel
+        fields = (
+            "id",
+            "phone",
+            "password",
+            "role",
+            "is_active",
+            "name",
+            "region",
+            "trade_type",
+            "address",
+        )
+        read_only_fields = ("id",)
+
+    @transaction.atomic
+    def create(self, validated_data):
+        profile_data = self._pop_profile_data(validated_data)
+        password = validated_data.pop("password", "")
+        user = UserModel(**validated_data)
+        if password:
+            user.set_password(password)
+        else:
+            user.set_unusable_password()
+        user.username = user.phone
+        user.is_staff = user.role in {User.Roles.ADMIN, User.Roles.LOAN_DEPARTMENT}
+        user.is_superuser = user.role == User.Roles.ADMIN
+        user.save()
+        self._update_profile(user, profile_data)
+        return user
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        profile_data = self._pop_profile_data(validated_data)
+        password = validated_data.pop("password", "")
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        if password:
+            instance.set_password(password)
+        instance.username = instance.phone
+        instance.is_staff = instance.role in {User.Roles.ADMIN, User.Roles.LOAN_DEPARTMENT}
+        instance.is_superuser = instance.role == User.Roles.ADMIN
+        instance.save()
+        self._update_profile(instance, profile_data)
+        return instance
+
+    def _pop_profile_data(self, validated_data):
+        return {
+            key: validated_data.pop(key)
+            for key in ["name", "region", "trade_type", "address"]
+            if key in validated_data
+        }
+
+    def _update_profile(self, user, profile_data):
+        if not profile_data:
+            return
+        for field, value in profile_data.items():
+            setattr(user.profile, field, value)
+        user.profile.save(update_fields=[*profile_data.keys()])
 
 
 class GuarantorSerializer(serializers.ModelSerializer):
@@ -223,3 +292,10 @@ class TrustScoreSimulatorSerializer(serializers.Serializer):
     social_component = serializers.IntegerField(min_value=0, max_value=100, required=False)
     psychometric_component = serializers.IntegerField(min_value=0, max_value=100, required=False)
     behavioral_component = serializers.IntegerField(min_value=0, max_value=100, required=False)
+
+
+class SystemSettingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SystemSetting
+        fields = ("id", "key", "value", "description", "updated_at")
+        read_only_fields = ("id", "updated_at")

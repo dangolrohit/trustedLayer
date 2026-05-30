@@ -248,3 +248,16 @@ class TrustScoreHistory(models.Model):
 
     def __str__(self):
         return f"{self.merchant_id}: {self.score}"
+
+
+class SystemSetting(models.Model):
+    key = models.CharField(max_length=120, unique=True)
+    value = models.CharField(max_length=500)
+    description = models.TextField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["key"]
+
+    def __str__(self):
+        return self.key

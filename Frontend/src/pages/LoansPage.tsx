@@ -23,6 +23,7 @@ export function LoansPage() {
   const user = useAuthStore((state) => state.user);
   const [loans, setLoans] = useState<LoanApplication[]>([]);
   const [message, setMessage] = useState("");
+  const [reviewNotes, setReviewNotes] = useState<Record<number, string>>({});
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<LoanForm>({
     resolver: zodResolver(loanSchema),
     defaultValues: { amount_requested: "", purpose: "" },
@@ -42,7 +43,11 @@ export function LoansPage() {
   };
 
   const onReview = async (id: number, status: "approved" | "rejected") => {
-    await reviewLoan(id, { status, notes: status === "approved" ? "Approved after trust score review." : "Rejected after risk review." });
+    await reviewLoan(id, {
+      status,
+      notes: reviewNotes[id] || (status === "approved" ? "Approved after trust score review." : "Rejected after risk review."),
+    });
+    setReviewNotes((current) => ({ ...current, [id]: "" }));
     await refresh();
   };
 
@@ -80,6 +85,7 @@ export function LoansPage() {
                 <th className="py-3 font-medium">Score</th>
                 <th className="py-3 font-medium">Status</th>
                 <th className="py-3 font-medium">Purpose</th>
+                <th className="py-3 font-medium">Notes</th>
                 {canReview ? <th className="py-3 font-medium">Review</th> : null}
               </tr>
             </thead>
@@ -91,16 +97,24 @@ export function LoansPage() {
                   <td className="py-3">{loan.trust_score_at_application}</td>
                   <td className="py-3 capitalize">{loan.status}</td>
                   <td className="max-w-xs truncate py-3">{loan.purpose}</td>
+                  <td className="max-w-xs py-3 text-muted-foreground">{loan.notes || "-"}</td>
                   {canReview ? (
                     <td className="py-3">
                       {loan.status === "pending" ? (
-                        <div className="flex gap-2">
-                          <Button size="sm" onClick={() => onReview(loan.id, "approved")}>
-                            <CheckCircle2 size={16} /> Approve
-                          </Button>
-                          <Button size="sm" variant="danger" onClick={() => onReview(loan.id, "rejected")}>
-                            <XCircle size={16} /> Reject
-                          </Button>
+                        <div className="grid min-w-72 gap-2">
+                          <Textarea
+                            placeholder="Add review notes"
+                            value={reviewNotes[loan.id] ?? ""}
+                            onChange={(event) => setReviewNotes((current) => ({ ...current, [loan.id]: event.target.value }))}
+                          />
+                          <div className="flex gap-2">
+                            <Button size="sm" onClick={() => onReview(loan.id, "approved")}>
+                              <CheckCircle2 size={16} /> Approve
+                            </Button>
+                            <Button size="sm" variant="danger" onClick={() => onReview(loan.id, "rejected")}>
+                              <XCircle size={16} /> Reject
+                            </Button>
+                          </div>
                         </div>
                       ) : (
                         <span className="text-muted-foreground">Reviewed</span>

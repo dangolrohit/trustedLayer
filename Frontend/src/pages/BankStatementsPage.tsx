@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "../components/ui/Button";
 import { Panel } from "../components/ui/Panel";
 import { formatCurrency } from "../lib/utils";
-import { listBankStatements, listUsers, uploadBankStatement } from "../lib/api";
+import { listBankStatements, listMerchants, uploadBankStatement } from "../lib/api";
 import { useAuthStore } from "../store/auth";
 import type { BankStatement, User } from "../types/api";
 
@@ -22,7 +22,7 @@ export function BankStatementsPage() {
   useEffect(() => {
     refresh();
     if (user?.role === "admin" || user?.role === "loan_department") {
-      listUsers().then(setUsers).catch(() => setMessage("Unable to load merchant list."));
+      listMerchants().then(setUsers).catch(() => setMessage("Unable to load merchant list."));
     }
   }, [user?.role]);
 

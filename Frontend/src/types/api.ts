@@ -21,6 +21,40 @@ export interface User {
   profile?: Profile;
 }
 
+export interface SystemSetting {
+  id: number;
+  key: string;
+  value: string;
+  description: string;
+  updated_at: string;
+}
+
+export interface Analytics {
+  users: {
+    total: number;
+    merchants: number;
+    loan_department: number;
+    admins: number;
+    active: number;
+  };
+  loans: {
+    total: number;
+    pending: number;
+    approved: number;
+    rejected: number;
+  };
+  trust: {
+    average_score: number;
+    strong_merchants: number;
+    thin_merchants: number;
+  };
+  signals: {
+    bank_statements: number;
+    psychometric_responses: number;
+    guarantors: number;
+  };
+}
+
 export interface AuthResponse {
   access: string;
   refresh: string;
@@ -91,4 +125,10 @@ export interface Dashboard {
   trust_score: TrustScore;
   recent_loans: LoanApplication[];
   bank_statement_count: number;
+  analytics?: {
+    merchant_count: number;
+    pending_loan_count: number;
+    approved_loan_count: number;
+    average_trust_score: number;
+  };
 }

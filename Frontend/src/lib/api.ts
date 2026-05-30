@@ -2,9 +2,12 @@ import axios, { type AxiosError, type InternalAxiosRequestConfig } from "axios";
 
 import type {
   AuthResponse,
+  Analytics,
   BankStatement,
   Dashboard,
   LoanApplication,
+  Role,
+  SystemSetting,
   TrustScore,
   TrustScoreHistory,
   User,
@@ -81,7 +84,9 @@ export async function getTrustHistory(merchantId?: number) {
   return data;
 }
 
-export async function simulateScore(payload: Partial<Record<"social_component" | "psychometric_component" | "behavioral_component", number>>) {
+export async function simulateScore(
+  payload: Partial<Record<"social_component" | "psychometric_component" | "behavioral_component", number>> & { merchant_id?: number },
+) {
   const { data } = await api.post<TrustScore>("/trust-score/simulate/", payload);
   return data;
 }
@@ -133,4 +138,60 @@ export async function reviewLoan(id: number, payload: { status: "approved" | "re
 export async function listUsers() {
   const { data } = await api.get<{ results?: User[] } | User[]>("/admin/users/");
   return Array.isArray(data) ? data : data.results ?? [];
+}
+
+export async function listMerchants() {
+  const { data } = await api.get<{ results?: User[] } | User[]>("/merchants/");
+  return Array.isArray(data) ? data : data.results ?? [];
+}
+
+export async function createUser(payload: {
+  phone: string;
+  password: string;
+  role: Role;
+  is_active: boolean;
+  name?: string;
+  region?: string;
+  trade_type?: string;
+  address?: string;
+}) {
+  const { data } = await api.post<User>("/admin/users/", payload);
+  return data;
+}
+
+export async function updateUser(
+  id: number,
+  payload: Partial<{
+    phone: string;
+    password: string;
+    role: Role;
+    is_active: boolean;
+    name: string;
+    region: string;
+    trade_type: string;
+    address: string;
+  }>,
+) {
+  const { data } = await api.patch<User>(`/admin/users/${id}/`, payload);
+  return data;
+}
+
+export async function getAnalytics() {
+  const { data } = await api.get<Analytics>("/admin/analytics/");
+  return data;
+}
+
+export async function listSettings() {
+  const { data } = await api.get<{ results?: SystemSetting[] } | SystemSetting[]>("/admin/settings/");
+  return Array.isArray(data) ? data : data.results ?? [];
+}
+
+export async function createSetting(payload: { key: string; value: string; description?: string }) {
+  const { data } = await api.post<SystemSetting>("/admin/settings/", payload);
+  return data;
+}
+
+export async function updateSetting(id: number, payload: Partial<Pick<SystemSetting, "key" | "value" | "description">>) {
+  const { data } = await api.patch<SystemSetting>(`/admin/settings/${id}/`, payload);
+  return data;
 }

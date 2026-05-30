@@ -1,5 +1,6 @@
 import logging
 
+from django.db.models import Avg, Count
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, status, viewsets
@@ -17,11 +18,13 @@ from core.models import (
     LoanApplication,
     Profile,
     PsychometricResponse,
+    SystemSetting,
     TrustScoreHistory,
     User,
 )
-from core.permissions import IsLoanDepartmentOrAdmin
+from core.permissions import IsAdminRole, IsLoanDepartmentOrAdmin
 from core.serializers import (
+    AdminUserSerializer,
     BankStatementSerializer,
     BankStatementUploadSerializer,
     BehavioralDataSerializer,
@@ -32,6 +35,7 @@ from core.serializers import (
     ProfileSerializer,
     PsychometricResponseSerializer,
     RegisterSerializer,
+    SystemSettingSerializer,
     TrustScoreHistorySerializer,
     TrustScoreSimulatorSerializer,
     UserSerializer,
@@ -74,6 +78,8 @@ class ProfileViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="dashboard")
     def dashboard(self, request):
+        if request.user.role in {User.Roles.ADMIN, User.Roles.LOAN_DEPARTMENT}:
+            return Response(self._staff_dashboard(request.user))
         profile = request.user.profile
         score = TrustScoreService().calculate_for_merchant(request.user, persist=False)
         loans = LoanApplication.objects.filter(merchant=request.user).order_by("-created_at")[:5]
@@ -85,6 +91,23 @@ class ProfileViewSet(viewsets.ModelViewSet):
                 "bank_statement_count": BankStatement.objects.filter(merchant=request.user).count(),
             }
         )
+
+    def _staff_dashboard(self, user):
+        merchants = User.objects.filter(role=User.Roles.MERCHANT)
+        pending_loans = LoanApplication.objects.filter(status=LoanApplication.Status.PENDING)
+        recent_loans = LoanApplication.objects.select_related("merchant", "reviewed_by").order_by("-created_at")[:5]
+        return {
+            "profile": ProfileSerializer(user.profile).data,
+            "trust_score": TrustScoreService().calculate_for_merchant(user, persist=False),
+            "recent_loans": LoanApplicationSerializer(recent_loans, many=True).data,
+            "bank_statement_count": BankStatement.objects.count(),
+            "analytics": {
+                "merchant_count": merchants.count(),
+                "pending_loan_count": pending_loans.count(),
+                "approved_loan_count": LoanApplication.objects.filter(status=LoanApplication.Status.APPROVED).count(),
+                "average_trust_score": round(merchants.aggregate(avg=Avg("profile__trust_score"))["avg"] or 0, 2),
+            },
+        }
 
 
 class GuarantorViewSet(viewsets.ModelViewSet):
@@ -235,7 +258,80 @@ class LoanApplicationViewSet(viewsets.ModelViewSet):
         return Response(LoanApplicationSerializer(application).data)
 
 
-class AdminUsersViewSet(viewsets.ReadOnlyModelViewSet):
+class AdminUsersViewSet(viewsets.ModelViewSet):
     queryset = User.objects.select_related("profile").all()
     serializer_class = UserSerializer
     permission_classes = [IsLoanDepartmentOrAdmin]
+
+    def get_permissions(self):
+        if self.action in {"create", "update", "partial_update", "destroy"}:
+            return [IsAdminRole()]
+        return [permission() for permission in self.permission_classes]
+
+    def get_serializer_class(self):
+        if self.action in {"create", "update", "partial_update"}:
+            return AdminUserSerializer
+        return UserSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response(UserSerializer(user).data)
+
+
+class MerchantDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = User.objects.select_related("profile").filter(role=User.Roles.MERCHANT, is_active=True).order_by("phone")
+    serializer_class = UserSerializer
+    permission_classes = [IsAuthenticated]
+
+
+class SystemSettingViewSet(viewsets.ModelViewSet):
+    queryset = SystemSetting.objects.all()
+    serializer_class = SystemSettingSerializer
+    permission_classes = [IsAdminRole]
+
+
+class AnalyticsView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        merchants = User.objects.filter(role=User.Roles.MERCHANT)
+        loans_by_status = dict(
+            LoanApplication.objects.values("status").annotate(count=Count("id")).values_list("status", "count")
+        )
+        return Response(
+            {
+                "users": {
+                    "total": User.objects.count(),
+                    "merchants": merchants.count(),
+                    "loan_department": User.objects.filter(role=User.Roles.LOAN_DEPARTMENT).count(),
+                    "admins": User.objects.filter(role=User.Roles.ADMIN).count(),
+                    "active": User.objects.filter(is_active=True).count(),
+                },
+                "loans": {
+                    "total": LoanApplication.objects.count(),
+                    "pending": loans_by_status.get(LoanApplication.Status.PENDING, 0),
+                    "approved": loans_by_status.get(LoanApplication.Status.APPROVED, 0),
+                    "rejected": loans_by_status.get(LoanApplication.Status.REJECTED, 0),
+                },
+                "trust": {
+                    "average_score": round(merchants.aggregate(avg=Avg("profile__trust_score"))["avg"] or 0, 2),
+                    "strong_merchants": merchants.filter(profile__trust_score__gte=75).count(),
+                    "thin_merchants": merchants.filter(profile__trust_score__lt=55).count(),
+                },
+                "signals": {
+                    "bank_statements": BankStatement.objects.count(),
+                    "psychometric_responses": PsychometricResponse.objects.count(),
+                    "guarantors": Guarantor.objects.count(),
+                },
+            }
+        )

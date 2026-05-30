@@ -6,9 +6,11 @@ import { ScoreGauge } from "../components/ScoreGauge";
 import { Panel, StatPanel } from "../components/ui/Panel";
 import { getDashboard } from "../lib/api";
 import { formatCurrency } from "../lib/utils";
+import { useAuthStore } from "../store/auth";
 import type { Dashboard } from "../types/api";
 
 export function DashboardPage() {
+  const user = useAuthStore((state) => state.user);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [error, setError] = useState("");
 
@@ -20,6 +22,7 @@ export function DashboardPage() {
   if (!dashboard) return <Panel><p className="text-sm text-muted-foreground">Loading dashboard...</p></Panel>;
 
   const latestLoan = dashboard.recent_loans[0];
+  const isStaff = user?.role === "admin" || user?.role === "loan_department";
 
   return (
     <div className="space-y-6">
@@ -33,14 +36,22 @@ export function DashboardPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatPanel label="Trust score" value={dashboard.trust_score.score} detail="Latest calculated score" />
+        <StatPanel
+          label={isStaff ? "Merchants" : "Trust score"}
+          value={isStaff ? dashboard.analytics?.merchant_count ?? 0 : dashboard.trust_score.score}
+          detail={isStaff ? "Visible merchant profiles" : "Latest calculated score"}
+        />
         <StatPanel label="Bank statements" value={dashboard.bank_statement_count} detail="Analyzed documents" />
         <StatPanel
-          label="Latest loan"
-          value={latestLoan ? formatCurrency(latestLoan.amount_requested) : "None"}
-          detail={latestLoan?.status ?? "No applications yet"}
+          label={isStaff ? "Pending loans" : "Latest loan"}
+          value={isStaff ? dashboard.analytics?.pending_loan_count ?? 0 : latestLoan ? formatCurrency(latestLoan.amount_requested) : "None"}
+          detail={isStaff ? "Waiting for review" : latestLoan?.status ?? "No applications yet"}
         />
-        <StatPanel label="Bank impact" value={dashboard.trust_score.breakdown.bank_impact} detail="Behavioral adjustment" />
+        <StatPanel
+          label={isStaff ? "Average score" : "Bank impact"}
+          value={isStaff ? dashboard.analytics?.average_trust_score ?? 0 : dashboard.trust_score.breakdown.bank_impact}
+          detail={isStaff ? "Across merchants" : "Behavioral adjustment"}
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1.1fr]">

@@ -8,6 +8,7 @@ from core.models import (
     LoanApplication,
     Profile,
     PsychometricResponse,
+    SystemSetting,
     TrustScoreHistory,
     User,
 )
@@ -38,3 +39,4 @@ admin.site.register(BehavioralData)
 admin.site.register(BankStatement)
 admin.site.register(LoanApplication)
 admin.site.register(TrustScoreHistory)
+admin.site.register(SystemSetting)

@@ -6,7 +6,7 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from core.models import BankStatement, LoanApplication, User
+from core.models import BankStatement, LoanApplication, SystemSetting, User
 
 
 class ApiWorkflowTests(TestCase):
@@ -22,6 +22,13 @@ class ApiWorkflowTests(TestCase):
             phone="+9779800000002",
             password="DemoPass123!",
             role=User.Roles.LOAN_DEPARTMENT,
+        )
+        self.admin = user_model.objects.create_user(
+            phone="+9779800000001",
+            password="DemoPass123!",
+            role=User.Roles.ADMIN,
+            is_staff=True,
+            is_superuser=True,
         )
 
     def authenticate(self, user):
@@ -107,3 +114,49 @@ class ApiWorkflowTests(TestCase):
         self.assertEqual(with_merchant.status_code, status.HTTP_201_CREATED)
         process_upload.assert_called_once()
         self.assertEqual(process_upload.call_args.args[0], self.merchant)
+
+    def test_admin_can_manage_users_settings_and_analytics(self):
+        self.authenticate(self.admin)
+
+        user_response = self.client.post(
+            "/api/admin/users/",
+            {
+                "phone": "+9779800000301",
+                "password": "DemoPass123!",
+                "role": User.Roles.MERCHANT,
+                "is_active": True,
+                "name": "New Merchant",
+            },
+            format="json",
+        )
+        setting_response = self.client.post(
+            "/api/admin/settings/",
+            {"key": "minimum_approval_score", "value": "65", "description": "Approval guide."},
+            format="json",
+        )
+        analytics_response = self.client.get("/api/admin/analytics/")
+
+        self.assertEqual(user_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(setting_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(analytics_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(SystemSetting.objects.get(key="minimum_approval_score").value, "65")
+
+    def test_loan_department_cannot_manage_admin_settings(self):
+        self.authenticate(self.staff)
+
+        response = self.client.post(
+            "/api/admin/settings/",
+            {"key": "minimum_approval_score", "value": "65"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_merchant_can_view_merchant_directory_for_guarantor_selection(self):
+        self.authenticate(self.merchant)
+
+        response = self.client.get("/api/merchants/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.data.get("results", response.data)
+        self.assertGreaterEqual(len(payload), 1)

@@ -11,6 +11,7 @@ from core.models import (
     Guarantor,
     LoanApplication,
     PsychometricResponse,
+    SystemSetting,
     User,
 )
 from core.services.trust_score_service import TrustScoreService
@@ -170,6 +171,15 @@ class Command(BaseCommand):
                 "status": LoanApplication.Status.PENDING,
                 "trust_score_at_application": score_payload["score"],
             },
+        )
+
+        SystemSetting.objects.update_or_create(
+            key="minimum_approval_score",
+            defaults={"value": "65", "description": "Suggested trust score threshold for loan approval."},
+        )
+        SystemSetting.objects.update_or_create(
+            key="max_statement_upload_mb",
+            defaults={"value": "5", "description": "Maximum bank statement PDF upload size."},
         )
 
         self.stdout.write(self.style.SUCCESS("Seed data created/updated successfully."))
