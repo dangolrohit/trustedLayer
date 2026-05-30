@@ -6,7 +6,7 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from core.models import BankStatement, LoanApplication, SystemSetting, User
+from core.models import BankStatement, Guarantor, LoanApplication, SystemSetting, TrustScoreHistory, User
 
 
 class ApiWorkflowTests(TestCase):
@@ -160,3 +160,47 @@ class ApiWorkflowTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         payload = response.data.get("results", response.data)
         self.assertGreaterEqual(len(payload), 1)
+
+    def test_adding_guarantor_updates_merchant_trust_score(self):
+        guarantor = get_user_model().objects.create_user(
+            phone="+9779800000999",
+            password="DemoPass123!",
+            role=User.Roles.MERCHANT,
+        )
+        self.authenticate(self.merchant)
+
+        response = self.client.post(
+            "/api/guarantors/",
+            {"guarantor": guarantor.id, "vouch_strength": 5},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Guarantor.objects.count(), 1)
+        self.merchant.profile.refresh_from_db()
+        self.assertGreater(self.merchant.profile.trust_score, 0)
+        self.assertTrue(TrustScoreHistory.objects.filter(merchant=self.merchant).exists())
+
+    def test_adding_standalone_guarantor_updates_merchant_trust_score(self):
+        self.authenticate(self.merchant)
+
+        response = self.client.post(
+            "/api/guarantors/",
+            {
+                "guarantor_name": "Local Guarantor",
+                "guarantor_phone": "9811111111",
+                "guarantor_address": "Kathmandu",
+                "relation": "Relative",
+                "vouch_strength": 5,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Guarantor.objects.count(), 1)
+        created = Guarantor.objects.get()
+        self.assertIsNone(created.guarantor)
+        self.assertEqual(created.guarantor_name, "Local Guarantor")
+        self.merchant.profile.refresh_from_db()
+        self.assertGreater(self.merchant.profile.trust_score, 0)
+        self.assertTrue(TrustScoreHistory.objects.filter(merchant=self.merchant).exists())

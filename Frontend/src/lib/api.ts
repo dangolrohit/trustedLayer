@@ -85,6 +85,16 @@ export async function getTrustScore(merchantId?: number) {
   return data;
 }
 
+export async function onboardingAuth(phone: string, password: string) {
+  const { data } = await api.post<{ onboarding_token: string }>("/auth/onboarding-auth/", { phone, password });
+  return data;
+}
+
+export async function onboardingComplete(onboardingToken: string) {
+  const { data } = await api.post<{ trust_score: TrustScore }>("/auth/onboarding-complete/", { onboarding_token: onboardingToken });
+  return data;
+}
+
 export async function getTrustHistory(merchantId?: number) {
   const { data } = await api.get<TrustScoreHistory[]>("/trust-score/history/", {
     params: merchantId ? { merchant_id: merchantId } : undefined,
@@ -119,13 +129,39 @@ export async function listBankStatements() {
 }
 
 export async function submitPsychometric(payload: { trait: string; score: number; responses_json: Record<string, unknown> }) {
-  const { data } = await api.post("/psychometric/", payload);
+  const headers = (payload as any).onboarding_token ? { "Onboarding-Token": (payload as any).onboarding_token } : undefined;
+  const { data } = await api.post("/psychometric/", payload, { headers });
   return data;
 }
 
-export async function addGuarantor(payload: { guarantor: number; vouch_strength: number }) {
-  const { data } = await api.post("/guarantors/", payload);
+export async function submitBehavioral(payload: {
+  data_type: string;
+  metrics_json: Record<string, unknown>;
+  period_start: string;
+  period_end: string;
+  merchant?: number;
+}) {
+  const headers = (payload as any).onboarding_token ? { "Onboarding-Token": (payload as any).onboarding_token } : undefined;
+  const { data } = await api.post("/behavioral-data/", payload, { headers });
   return data;
+}
+
+export async function addGuarantor(payload: {
+  guarantor?: number | null;
+  guarantor_name?: string;
+  guarantor_phone?: string;
+  guarantor_address?: string;
+  relation?: string;
+  vouch_strength: number;
+}) {
+  const headers = (payload as any).onboarding_token ? { "Onboarding-Token": (payload as any).onboarding_token } : undefined;
+  const { data } = await api.post("/guarantors/", payload, { headers });
+  return data;
+}
+
+export async function listGuarantors() {
+  const { data } = await api.get<{ results?: unknown[] } | unknown[]>("/guarantors/");
+  return Array.isArray(data) ? data : data.results ?? [];
 }
 
 export async function submitLoan(payload: { amount_requested: string; purpose: string }) {

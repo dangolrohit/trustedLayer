@@ -35,7 +35,7 @@ class Command(BaseCommand):
 
         admin = self._user(
             user_model,
-            phone="+9779800000001",
+            phone="9800000001",
             role=User.Roles.ADMIN,
             password=password,
             is_staff=True,
@@ -49,7 +49,7 @@ class Command(BaseCommand):
         )
         loan_officer = self._user(
             user_model,
-            phone="+9779800000002",
+            phone="9800000002",
             role=User.Roles.LOAN_DEPARTMENT,
             password=password,
             is_staff=True,
@@ -62,7 +62,7 @@ class Command(BaseCommand):
         )
         merchant = self._user(
             user_model,
-            phone="+9779800000101",
+            phone="9800000101",
             role=User.Roles.MERCHANT,
             password=password,
             profile={
@@ -74,7 +74,7 @@ class Command(BaseCommand):
         )
         guarantor = self._user(
             user_model,
-            phone="+9779800000201",
+            phone="9800000201",
             role=User.Roles.MERCHANT,
             password=password,
             profile={

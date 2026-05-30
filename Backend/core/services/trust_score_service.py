@@ -102,6 +102,8 @@ class TrustScoreService:
         graph = nx.DiGraph()
         strengths = {}
         for edge in active_edges:
+            if edge.guarantor_id is None:
+                continue
             graph.add_edge(edge.guarantor_id, edge.merchant_id, weight=edge.vouch_strength)
             strengths[(edge.guarantor_id, edge.merchant_id)] = edge.vouch_strength
 

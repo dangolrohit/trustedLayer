@@ -47,7 +47,9 @@ export function LoginPage() {
     try {
       const session = await login(parsed.data.phone, parsed.data.password);
       setSession(session.access, session.refresh, session.user);
-      navigate("/app");
+        // request that AppShell show the get-started modal once
+        localStorage.setItem("show_get_started", "1");
+        navigate("/app");
     } catch {
       setError("Login failed. Check your credentials and try again.");
     } finally {

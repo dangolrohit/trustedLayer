@@ -42,6 +42,9 @@ from core.serializers import (
 )
 from core.services.bank_statement_processor import BankStatementProcessor
 from core.services.trust_score_service import TrustScoreService
+from django.core.signing import dumps, loads, BadSignature, SignatureExpired
+from django.conf import settings
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +57,73 @@ class RegisterView(APIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
         return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
+
+
+class OnboardingAuthView(APIView):
+    """Exchange phone+password for a short-lived onboarding token for inactive merchants.
+
+    Merchants created as inactive can POST phone/password here to get an onboarding token
+    which can be used to submit psychometric/behavioral/guarantor data before activation.
+    """
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        phone = request.data.get("phone")
+        password = request.data.get("password")
+        if not phone or not password:
+            return Response({"detail": "phone and password required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            user = User.objects.get(phone=phone)
+        except User.DoesNotExist:
+            return Response({"detail": "Invalid credentials"}, status=status.HTTP_400_BAD_REQUEST)
+        if user.is_active:
+            return Response({"detail": "Account already active; please login normally."}, status=status.HTTP_400_BAD_REQUEST)
+        if not user.check_password(password):
+            return Response({"detail": "Invalid credentials"}, status=status.HTTP_400_BAD_REQUEST)
+        # create a signed token with timestamp
+        token = dumps({"user_id": user.id}, salt="onboarding")
+        return Response({"onboarding_token": token})
+
+
+def _resolve_onboarding_user(request):
+    # Priority: authenticated active user
+    if request.user and getattr(request.user, "is_authenticated", False) and request.user.role == User.Roles.MERCHANT:
+        return request.user
+    # Otherwise allow onboarding token in header or body
+    token = request.META.get("HTTP_ONBOARDING_TOKEN") or request.data.get("onboarding_token")
+    if not token:
+        return None
+    try:
+        payload = loads(token, salt="onboarding")
+        user_id = payload.get("user_id")
+        user = User.objects.get(id=user_id)
+        return user
+    except (BadSignature, SignatureExpired, User.DoesNotExist):
+        return None
+
+
+class OnboardingCompleteView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        token = request.data.get("onboarding_token") or request.META.get("HTTP_ONBOARDING_TOKEN")
+        if not token:
+            return Response({"detail": "onboarding_token required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            payload = loads(token, salt="onboarding")
+            user_id = payload.get("user_id")
+            user = User.objects.get(id=user_id)
+        except SignatureExpired:
+            return Response({"detail": "Onboarding token expired"}, status=status.HTTP_400_BAD_REQUEST)
+        except (BadSignature, User.DoesNotExist):
+            return Response({"detail": "Invalid onboarding token"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # finalize onboarding: mark active and calculate trust score
+        user.is_active = True
+        user.save(update_fields=["is_active"]) 
+        score = TrustScoreService().calculate_for_merchant(user, persist=True)
+        return Response({"detail": "Onboarding complete", "trust_score": score})
 
 
 class LoginView(TokenObtainPairView):
@@ -120,12 +190,20 @@ class GuarantorViewSet(viewsets.ModelViewSet):
         return Guarantor.objects.select_related("merchant", "guarantor").filter(merchant=self.request.user)
 
     def perform_create(self, serializer):
+        merchant = _resolve_onboarding_user(self.request)
+        if merchant and merchant.role == User.Roles.MERCHANT:
+            guarantor = serializer.save(merchant=merchant)
+            TrustScoreService().calculate_for_merchant(merchant, persist=True)
+            return
+        # fallback to original behavior (staff users providing merchant)
         if self.request.user.role == User.Roles.MERCHANT:
-            serializer.save(merchant=self.request.user)
-        else:
-            if "merchant" not in serializer.validated_data:
-                raise ValidationError({"merchant": "This field is required for staff users."})
-            serializer.save()
+            guarantor = serializer.save(merchant=self.request.user)
+            TrustScoreService().calculate_for_merchant(self.request.user, persist=True)
+            return
+        if "merchant" not in serializer.validated_data:
+            raise ValidationError({"merchant": "This field is required for staff users."})
+        guarantor = serializer.save()
+        TrustScoreService().calculate_for_merchant(guarantor.merchant, persist=True)
 
 
 class PsychometricResponseViewSet(viewsets.ModelViewSet):
@@ -138,7 +216,7 @@ class PsychometricResponseViewSet(viewsets.ModelViewSet):
         return PsychometricResponse.objects.filter(merchant=self.request.user)
 
     def perform_create(self, serializer):
-        merchant = self.request.user if self.request.user.role == User.Roles.MERCHANT else serializer.validated_data.get("merchant")
+        merchant = _resolve_onboarding_user(self.request) or serializer.validated_data.get("merchant")
         if not merchant:
             raise ValidationError({"merchant": "This field is required for staff users."})
         serializer.save(merchant=merchant)
@@ -155,7 +233,7 @@ class BehavioralDataViewSet(viewsets.ModelViewSet):
         return BehavioralData.objects.filter(merchant=self.request.user)
 
     def perform_create(self, serializer):
-        merchant = self.request.user if self.request.user.role == User.Roles.MERCHANT else serializer.validated_data.get("merchant")
+        merchant = _resolve_onboarding_user(self.request) or serializer.validated_data.get("merchant")
         if not merchant:
             raise ValidationError({"merchant": "This field is required for staff users."})
         serializer.save(merchant=merchant)

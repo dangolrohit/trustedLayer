@@ -4,5 +4,8 @@ import { useAuthStore } from "../store/auth";
 
 export function ProtectedRoute() {
   const token = useAuthStore((state) => state.accessToken);
-  return token ? <Outlet /> : <Navigate to="/login" replace />;
+  const user = useAuthStore((state) => state.user);
+  if (!token) return <Navigate to="/login" replace />;
+  // Allow access for authenticated users regardless of onboarding status
+  return <Outlet />;
 }

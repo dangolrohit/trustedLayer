@@ -91,6 +91,21 @@ export interface TrustScoreHistory {
   created_at: string;
 }
 
+export interface Guarantor {
+  id: number;
+  merchant: number;
+  merchant_phone: string;
+  guarantor: number | null;
+  linked_guarantor_phone: string | null;
+  guarantor_name: string;
+  guarantor_phone: string;
+  guarantor_address: string;
+  relation: string;
+  vouch_strength: number;
+  status: "active" | "revoked";
+  created_at: string;
+}
+
 export interface BankStatement {
   id: number;
   file_path: string;

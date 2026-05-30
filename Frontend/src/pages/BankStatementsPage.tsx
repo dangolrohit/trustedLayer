@@ -54,9 +54,9 @@ export function BankStatementsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Bank Statements</h1>
+        <h1 className="text-2xl font-bold">Banks</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Upload PDF or Excel statements and review extracted transaction records and cash-flow signals.
+          Link a bank or upload a statement to review extracted transaction records and cash-flow signals.
         </p>
       </div>
 
@@ -80,7 +80,7 @@ export function BankStatementsPage() {
             </label>
           ) : null}
           <label>
-            <span className="mb-2 block text-sm font-medium">Statement file (PDF or Excel)</span>
+            <span className="mb-2 block text-sm font-medium">Upload statement file (PDF or Excel)</span>
             <input
               type="file"
               accept=".pdf,.xlsx,.xls,.xlsm,.xlsb,.xltx,.xltm,.xlt,.xla,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"

@@ -7,20 +7,24 @@ import {
   FileUp,
   LayoutDashboard,
   LogOut,
+  Activity,
   Users,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { Button } from "./ui/Button";
 import { cn, roleLabel } from "../lib/utils";
 import { useAuthStore } from "../store/auth";
+import { GetStartedModal } from "./GetStartedModal";
 
 const links = [
   { to: "/app", label: "Dashboard", icon: LayoutDashboard, roles: ["merchant", "loan_department", "admin"] },
   { to: "/app/trust-score", label: "Trust Score", icon: BarChart3, roles: ["merchant", "loan_department", "admin"] },
-  { to: "/app/bank-statements", label: "Statements", icon: FileUp, roles: ["merchant", "loan_department", "admin"] },
+  { to: "/app/bank-statements", label: "Banks", icon: FileUp, roles: ["merchant", "loan_department", "admin"] },
   { to: "/app/loans", label: "Loans", icon: CreditCard, roles: ["merchant", "loan_department", "admin"] },
+  { to: "/app/psychometric", label: "Psychometric", icon: Activity, roles: ["merchant"] },
+  { to: "/app/guarantor", label: "Guarantor", icon: Users, roles: ["merchant"] },
   { to: "/app/admin", label: "Admin", icon: Users, roles: ["admin", "loan_department"] },
 ];
 
@@ -29,6 +33,12 @@ export function AppShell() {
   const logout = useAuthStore((state) => state.logout);
   const navigate = useNavigate();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [showGetStarted, setShowGetStarted] = useState(false);
+
+  useEffect(() => {
+    const v = localStorage.getItem("show_get_started");
+    if (v) setShowGetStarted(true);
+  }, []);
 
   const onLogout = () => {
     logout();
@@ -72,9 +82,7 @@ export function AppShell() {
         </div>
 
         <nav className="flex gap-1 overflow-x-auto px-4 pb-3 lg:flex-1 lg:flex-col lg:overflow-x-visible lg:px-3 lg:pb-4">
-          {links
-            .filter((link) => user?.role && link.roles.includes(user.role))
-            .map((link) => (
+            {links.filter((link) => user?.role && link.roles.includes(user.role)).map((link) => (
               <NavLink
                 key={link.to}
                 to={link.to}
@@ -109,6 +117,7 @@ export function AppShell() {
       </aside>
 
       <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
+        <GetStartedModal open={showGetStarted} onClose={() => setShowGetStarted(false)} />
         <div className="mx-auto max-w-7xl">
           <Outlet />
         </div>

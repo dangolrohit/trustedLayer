@@ -85,8 +85,12 @@ class Guarantor(models.Model):
         User, on_delete=models.CASCADE, related_name="merchant_guarantors"
     )
     guarantor = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="guarantees_given"
+        User, on_delete=models.CASCADE, related_name="guarantees_given", null=True, blank=True
     )
+    guarantor_name = models.CharField(max_length=255, blank=True)
+    guarantor_phone = models.CharField(max_length=20, blank=True)
+    guarantor_address = models.TextField(blank=True)
+    relation = models.CharField(max_length=120, blank=True)
     vouch_strength = models.IntegerField(
         validators=[MinValueValidator(1), MaxValueValidator(5)]
     )
@@ -96,10 +100,12 @@ class Guarantor(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["merchant", "guarantor"], name="unique_merchant_guarantor"
+                fields=["merchant", "guarantor"],
+                condition=models.Q(guarantor__isnull=False),
+                name="unique_merchant_guarantor",
             ),
             models.CheckConstraint(
-                condition=~models.Q(merchant=models.F("guarantor")),
+                condition=models.Q(guarantor__isnull=True) | ~models.Q(merchant=models.F("guarantor")),
                 name="merchant_cannot_guarantee_self",
             ),
         ]

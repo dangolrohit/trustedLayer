@@ -89,6 +89,8 @@ export function TrustScorePage() {
 
   if (!score) return <Panel><p className="text-sm text-muted-foreground">Loading trust score...</p></Panel>;
 
+  const recentHistory = history.slice(0, 30);
+
   return (
     <div className="space-y-6">
       <div>
@@ -206,9 +208,13 @@ export function TrustScorePage() {
         </Panel>
 
         <Panel>
-          <h2 className="font-semibold">History</h2>
-          <div className="mt-4 divide-y divide-border">
-            {history.map((item) => (
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-semibold">Credit score history</h2>
+            <p className="text-xs text-muted-foreground">Showing recent 30 entries, about 5 visible at a time</p>
+          </div>
+          <div className="mt-4 max-h-[380px] overflow-y-auto pr-2">
+            <div className="divide-y divide-border">
+            {recentHistory.map((item) => (
               <div key={item.id} className="flex items-center justify-between gap-3 py-3">
                 <div>
                   <p className="font-medium">Score {item.score}</p>
@@ -217,6 +223,7 @@ export function TrustScorePage() {
                 <p className="text-sm text-muted-foreground">Bank impact {item.bank_impact}</p>
               </div>
             ))}
+            </div>
           </div>
         </Panel>
       </div>

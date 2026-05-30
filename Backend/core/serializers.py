@@ -39,7 +39,9 @@ class RegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         name = validated_data.pop("name", "")
         password = validated_data.pop("password")
+        # Create user and mark active by default (merchants should be able to login)
         user = UserModel(**validated_data)
+        user.is_active = True
         user.set_password(password)
         user.username = validated_data["phone"]
         user.save()
@@ -157,7 +159,13 @@ class AdminUserSerializer(serializers.ModelSerializer):
 
 class GuarantorSerializer(serializers.ModelSerializer):
     merchant_phone = serializers.CharField(source="merchant.phone", read_only=True)
-    guarantor_phone = serializers.CharField(source="guarantor.phone", read_only=True)
+    linked_guarantor_phone = serializers.CharField(source="guarantor.phone", read_only=True)
+    merchant = serializers.PrimaryKeyRelatedField(
+        queryset=UserModel.objects.filter(role=User.Roles.MERCHANT), required=False
+    )
+    guarantor = serializers.PrimaryKeyRelatedField(
+        queryset=UserModel.objects.filter(role=User.Roles.MERCHANT), required=False, allow_null=True
+    )
 
     class Meta:
         model = Guarantor
@@ -166,16 +174,20 @@ class GuarantorSerializer(serializers.ModelSerializer):
             "merchant",
             "merchant_phone",
             "guarantor",
+            "linked_guarantor_phone",
+            "guarantor_name",
             "guarantor_phone",
+            "guarantor_address",
+            "relation",
             "vouch_strength",
             "status",
             "created_at",
         )
-        read_only_fields = ("id", "created_at", "merchant_phone", "guarantor_phone")
-        extra_kwargs = {"merchant": {"required": False}}
+        read_only_fields = ("id", "created_at", "merchant_phone", "linked_guarantor_phone")
+        validators = []
 
     def validate(self, attrs):
-        if attrs.get("merchant") == attrs.get("guarantor"):
+        if attrs.get("merchant") and attrs.get("guarantor") and attrs.get("merchant") == attrs.get("guarantor"):
             raise serializers.ValidationError("A merchant cannot be their own guarantor.")
         return attrs
 
